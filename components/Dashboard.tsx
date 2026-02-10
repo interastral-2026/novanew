@@ -51,7 +51,8 @@ const Dashboard: React.FC<Props> = ({ marketData }) => {
         ))}
       </div>
 
-      <div className="h-64 w-full bg-slate-950/50 rounded-xl p-2 border border-slate-800">
+      {/* اضافه کردن min-height به ظرف نمودار برای جلوگیری از خطای width(-1) */}
+      <div className="h-64 w-full bg-slate-950/50 rounded-xl p-2 border border-slate-800 relative" style={{ minHeight: '256px' }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={mockChartData}>
             <defs>
