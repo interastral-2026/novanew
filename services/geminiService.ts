@@ -6,7 +6,8 @@ import { MarketData, OrderSide } from "../types";
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const analyzeMarket = async (data: MarketData[], currentPortfolio: any) => {
-  const model = 'gemini-3-flash-preview';
+  // Fix: Using 'gemini-3-pro-preview' for complex text tasks (trading analysis and reasoning)
+  const model = 'gemini-3-pro-preview';
   
   const prompt = `
     As a high-frequency algorithmic trader, analyze the following real-time market data:
