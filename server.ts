@@ -8,13 +8,18 @@ import fs from 'fs';
 
 const app = express();
 
-// ۱. میدل‌ویر دستی CORS - این بخش تمام هدرهای لازم را به هر پاسخی (حتی خطاها) اضافه می‌کند
+// 1. Precise Request Logging for debugging Railway deployment
+app.use((req: any, res: any, next: any) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    next();
+});
+
+// 2. Comprehensive Manual CORS Middleware
 app.use((req: any, res: any, next: any) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
     
-    // پاسخ سریع به درخواست‌های Preflight مرورگر
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
@@ -30,7 +35,10 @@ if (PRIVATE_KEY.includes('\\n')) {
 }
 
 function generateToken(method: string, url: string) {
-  if (!PRIVATE_KEY) return "";
+  if (!PRIVATE_KEY) {
+      console.warn("Auth Error: PRIVATE_KEY is empty");
+      return "";
+  }
   const algorithm = 'ES256';
   const uri = `ANY ${url}`;
   try {
@@ -49,75 +57,98 @@ function generateToken(method: string, url: string) {
       }
     );
   } catch (err) {
-    console.error("JWT Error:", err);
+    console.error("JWT Generation Error:", err);
     return "";
   }
 }
 
-// ۲. مسیرهای API - اولویت اول
-app.get('/api/health', (req, res) => {
-    res.json({ status: 'online', timestamp: new Date().toISOString() });
+// 3. API ROUTES - Highest Priority
+const apiRouter = express.Router();
+
+apiRouter.get('/health', (req, res) => {
+    res.json({ status: 'operational', timestamp: new Date().toISOString() });
 });
 
-app.get('/api/portfolio', async (req, res) => {
-  console.log("Processing Portfolio Request...");
+apiRouter.get('/portfolio', async (req, res) => {
+  console.log("-> API: Fetching Portfolio from Coinbase...");
   try {
     const coinbasePath = '/api/v3/brokerage/accounts';
     const token = generateToken('GET', coinbasePath);
-    if (!token) throw new Error("Auth token generation failed");
+    
+    if (!token) {
+        return res.status(500).json({ error: 'Auth initialization failed' });
+    }
 
     const response = await axios.get(`https://api.coinbase.com${coinbasePath}`, {
       headers: { Authorization: `Bearer ${token}` }
     });
+    
+    console.log("<- API: Portfolio data received successfully");
     res.json(response.data);
   } catch (error: any) {
+    const status = error.response?.status || 500;
     const detail = error.response?.data || error.message;
-    console.error("Portfolio Backend Error:", detail);
-    res.status(500).json({ error: 'Coinbase API Connection Failure', detail });
+    console.error(`Portfolio Backend Error [${status}]:`, detail);
+    res.status(status).json({ error: 'Coinbase API Error', detail });
   }
 });
 
-app.post('/api/trade', async (req, res) => {
+apiRouter.post('/trade', async (req, res) => {
+  console.log("-> API: Executing Trade Order...");
   try {
     const { symbol, side, amount, price } = req.body;
     const coinbasePath = '/api/v3/brokerage/orders';
     const token = generateToken('POST', coinbasePath);
+    
     const orderData = {
       client_order_id: crypto.randomBytes(16).toString('hex'),
       product_id: `${symbol}-USD`,
       side: side,
       order_configuration: {
-        limit_limit_gtc: { base_size: amount.toString(), limit_price: price.toString() }
+        limit_limit_gtc: { 
+            base_size: amount.toString(), 
+            limit_price: price.toString() 
+        }
       }
     };
+    
     const response = await axios.post(`https://api.coinbase.com${coinbasePath}`, orderData, {
       headers: { Authorization: `Bearer ${token}` }
     });
+    
     res.json(response.data);
   } catch (error: any) {
-    res.status(500).json({ error: 'Trade Error', detail: error.response?.data });
+    const status = error.response?.status || 500;
+    res.status(status).json({ error: 'Trade Execution Error', detail: error.response?.data });
   }
 });
 
-// ۳. فایل‌های استاتیک و SPA Routing
+app.use('/api', apiRouter);
+
+// 4. STATIC FILES AND SPA HANDLING
 const publicPath = process.cwd();
 app.use(express.static(publicPath) as any);
 
+// Catch-all for React SPA routing
 app.get('*', ((req: any, res: any) => {
-    // اگر درخواست API بود و تا اینجا رسیده یعنی پیدا نشده
+    // If it's an API route that reached here, it's a 404 for the API
     if (req.path.startsWith('/api')) {
-        return res.status(404).json({ error: 'API Endpoint not found' });
+        return res.status(404).json({ error: 'API Endpoint Not Found' });
     }
     
     const indexPath = path.join(publicPath, 'index.html');
     if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
     } else {
-        res.status(404).send("Application shell (index.html) missing from server root.");
+        res.status(404).send("Essential File (index.html) Not Found. Verify build artifact location.");
     }
 }) as any);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-    console.log(`🚀 Astraea Core Operational on port ${PORT}`);
+    console.log(`=========================================`);
+    console.log(`🚀 ASTRAEA CORE OPERATIONAL`);
+    console.log(`📡 Port: ${PORT}`);
+    console.log(`🌍 Root: ${publicPath}`);
+    console.log(`=========================================`);
 });
